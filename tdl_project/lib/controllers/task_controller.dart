@@ -1,15 +1,38 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../data/task_store.dart';
 import '../models/task_item.dart';
 
 class TaskController extends ChangeNotifier {
+  TaskController({TaskStore? store}) : _store = store ?? MemoryTaskStore();
+
+  TaskStore _store;
   final List<TaskItem> _tasks = [];
+  Future<void> _pendingWrite = Future.value();
+
+  Future<void> load() async {
+    final storedTasks = await _store.loadTasks();
+    _tasks
+      ..clear()
+      ..addAll(storedTasks);
+    notifyListeners();
+  }
+
+  Future<void> useStore(TaskStore store) async {
+    await _pendingWrite;
+    _store = store;
+    await load();
+  }
 
   List<TaskItem> get activeTasks =>
       List.unmodifiable(_tasks.where((task) => !task.isDeleted));
 
   List<TaskItem> get deletedTasks =>
       List.unmodifiable(_tasks.where((task) => task.isDeleted));
+
+  Future<void> get pendingWrites => _pendingWrite;
 
   void addTextTask({
     required String title,
@@ -32,7 +55,7 @@ class TaskController extends ChangeNotifier {
         dueDate: dueDate,
       ),
     );
-    notifyListeners();
+    _commit(changedId: _tasks.last.id);
   }
 
   TaskItem? findById(String id) {
@@ -62,6 +85,85 @@ class TaskController extends ChangeNotifier {
     );
   }
 
+  void addDrawingTask({
+    required String title,
+    required String drawingJson,
+    required int strokeCount,
+  }) {
+    final now = DateTime.now();
+    _tasks.add(
+      TaskItem(
+        id: now.microsecondsSinceEpoch.toString(),
+        title: title.trim(),
+        description: '$strokeCount nét vẽ',
+        drawingJson: drawingJson,
+        contentType: TaskContentType.drawing,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    _commit(changedId: _tasks.last.id);
+  }
+
+  void updateDrawingTask({
+    required String id,
+    required String title,
+    required String drawingJson,
+    required int strokeCount,
+  }) {
+    _update(
+      id,
+      (task) => task.copyWith(
+        title: title.trim(),
+        description: '$strokeCount nét vẽ',
+        drawingJson: drawingJson,
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
+  void addImageTask({
+    required String title,
+    required String imageDataJson,
+    String? description,
+  }) {
+    final now = DateTime.now();
+    _tasks.add(
+      TaskItem(
+        id: now.microsecondsSinceEpoch.toString(),
+        title: title.trim(),
+        description: description?.trim().isEmpty ?? true
+            ? null
+            : description!.trim(),
+        imageDataJson: imageDataJson,
+        contentType: TaskContentType.image,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+    _commit(changedId: _tasks.last.id);
+  }
+
+  void updateImageTask({
+    required String id,
+    required String title,
+    required String imageDataJson,
+    String? description,
+  }) {
+    _update(
+      id,
+      (task) => task.copyWith(
+        title: title.trim(),
+        description: description?.trim().isEmpty ?? true
+            ? null
+            : description!.trim(),
+        clearDescription: description?.trim().isEmpty ?? true,
+        imageDataJson: imageDataJson,
+        updatedAt: DateTime.now(),
+      ),
+    );
+  }
+
   void toggleCompleted(String id) {
     _update(id, (task) => task.copyWith(isCompleted: !task.isCompleted));
   }
@@ -76,13 +178,32 @@ class TaskController extends ChangeNotifier {
 
   void deleteForever(String id) {
     _tasks.removeWhere((task) => task.id == id);
-    notifyListeners();
+    _commit(deletedId: id);
   }
 
   void _update(String id, TaskItem Function(TaskItem task) transform) {
     final index = _tasks.indexWhere((task) => task.id == id);
     if (index == -1) return;
     _tasks[index] = transform(_tasks[index]);
+    _commit(changedId: id);
+  }
+
+  void _commit({String? changedId, String? deletedId}) {
     notifyListeners();
+    final snapshot = List<TaskItem>.of(_tasks);
+    final changedIds = changedId == null ? <String>{} : {changedId};
+    final deletedIds = deletedId == null ? <String>{} : {deletedId};
+    _pendingWrite = _pendingWrite
+        .then(
+          (_) => _store.saveTasks(
+            snapshot,
+            changedIds: changedIds,
+            deletedIds: deletedIds,
+          ),
+        )
+        .catchError((Object error, StackTrace stackTrace) {
+          debugPrint('Không thể lưu dữ liệu TDL: $error');
+        });
+    unawaited(_pendingWrite);
   }
 }

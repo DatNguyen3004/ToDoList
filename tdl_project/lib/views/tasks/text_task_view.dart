@@ -6,6 +6,8 @@ import 'package:flutter_quill/flutter_quill.dart';
 
 import '../../models/task_item.dart';
 
+const _primaryBlue = Color(0xFF1976D2);
+
 class TextTaskDraft {
   const TextTaskDraft({
     required this.title,
@@ -19,10 +21,16 @@ class TextTaskDraft {
 }
 
 class TextTaskView extends StatefulWidget {
-  const TextTaskView({required this.onSave, this.initialTask, super.key});
+  const TextTaskView({
+    required this.onSave,
+    this.initialTask,
+    this.onDeleteEmpty,
+    super.key,
+  });
 
   final TaskItem? initialTask;
   final ValueChanged<TextTaskDraft> onSave;
+  final VoidCallback? onDeleteEmpty;
 
   @override
   State<TextTaskView> createState() => _TextTaskViewState();
@@ -32,7 +40,6 @@ class _TextTaskViewState extends State<TextTaskView> {
   late final TextEditingController _titleController;
   late final QuillController _contentController;
   late final FocusNode _contentFocusNode;
-  late DateTime _lastEditedAt;
   bool _canPop = false;
   bool _isClosing = false;
 
@@ -48,8 +55,6 @@ class _TextTaskViewState extends State<TextTaskView> {
       selection: const TextSelection.collapsed(offset: 0),
       onReplaceText: _handleContentReplacement,
     );
-    _contentController.addListener(_markContentEdited);
-    _lastEditedAt = widget.initialTask?.updatedAt ?? DateTime.now();
   }
 
   Document _loadDocument(TaskItem? task) {
@@ -75,19 +80,10 @@ class _TextTaskViewState extends State<TextTaskView> {
 
   @override
   void dispose() {
-    _contentController.removeListener(_markContentEdited);
     _titleController.dispose();
     _contentFocusNode.dispose();
     _contentController.dispose();
     super.dispose();
-  }
-
-  void _markTitleEdited(String _) {
-    setState(() => _lastEditedAt = DateTime.now());
-  }
-
-  void _markContentEdited() {
-    if (mounted) setState(() => _lastEditedAt = DateTime.now());
   }
 
   bool _handleContentReplacement(int index, int length, Object? data) {
@@ -126,22 +122,14 @@ class _TextTaskViewState extends State<TextTaskView> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('Hãy nhập tiêu đề hoặc nội dung.')),
+          const SnackBar(content: Text('Hãy nhập nội dung để lưu.')),
         );
       return;
     }
 
-    final generatedTitle = description.split('\n').first.trim();
-    final title = rawTitle.isNotEmpty
-        ? rawTitle
-        : generatedTitle.substring(
-            0,
-            generatedTitle.length > 60 ? 60 : generatedTitle.length,
-          );
-
     widget.onSave(
       TextTaskDraft(
-        title: title,
+        title: rawTitle,
         description: description.isEmpty ? null : description,
         richTextJson: jsonEncode(
           _contentController.document.toDelta().toJson(),
@@ -162,6 +150,7 @@ class _TextTaskViewState extends State<TextTaskView> {
     if (hasTitle || hasContent) {
       _save();
     } else {
+      if (_isEditing) widget.onDeleteEmpty?.call();
       _closePage();
     }
   }
@@ -173,14 +162,6 @@ class _TextTaskViewState extends State<TextTaskView> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) Navigator.of(context).pop();
     });
-  }
-
-  String _formatEditedTime(DateTime date) {
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-    final month = date.month.toString().padLeft(2, '0');
-    return '$hour:$minute • $day/$month/${date.year}';
   }
 
   @override
@@ -207,9 +188,16 @@ class _TextTaskViewState extends State<TextTaskView> {
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
-            TextButton(
+            FilledButton(
               key: const Key('save_text_task_button'),
               onPressed: _save,
+              style: FilledButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: _primaryBlue,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
               child: const Text(
                 'Lưu',
                 style: TextStyle(fontWeight: FontWeight.w900),
@@ -230,7 +218,6 @@ class _TextTaskViewState extends State<TextTaskView> {
                   autofocus: !_isEditing,
                   textCapitalization: TextCapitalization.sentences,
                   maxLines: null,
-                  onChanged: _markTitleEdited,
                   textInputAction: TextInputAction.next,
                   onSubmitted: (_) => _contentFocusNode.requestFocus(),
                   style: TextStyle(
@@ -280,22 +267,6 @@ class _TextTaskViewState extends State<TextTaskView> {
                     controller: _contentController,
                   ),
                 ),
-                const SizedBox(height: 9),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.schedule_rounded,
-                      size: 15,
-                      color: secondaryText,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Đã chỉnh sửa ${_formatEditedTime(_lastEditedAt)}',
-                      style: TextStyle(color: secondaryText, fontSize: 12),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
@@ -312,15 +283,56 @@ class _FormattingToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final normalColor = Theme.of(context).brightness == Brightness.dark
+        ? const Color(0xFFEAF5FF)
+        : const Color(0xFF202124);
+    final iconTheme = QuillIconTheme(
+      iconButtonUnselectedData: IconButtonData(
+        color: normalColor,
+        disabledColor: const Color(0xFF9AA0A6),
+        style: IconButton.styleFrom(
+          foregroundColor: normalColor,
+          backgroundColor: Colors.transparent,
+          shape: const CircleBorder(),
+        ),
+      ),
+      iconButtonSelectedData: IconButtonData(
+        color: Colors.white,
+        style: IconButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: _primaryBlue,
+          shape: const CircleBorder(),
+        ),
+      ),
+    );
     return SizedBox(
       height: 48,
       child: Row(
         children: [
           _ToolbarSlot(
+            child: QuillToolbarHistoryButton(
+              key: const Key('undo_edit_button'),
+              controller: controller,
+              isUndo: true,
+              options: QuillToolbarHistoryButtonOptions(iconTheme: iconTheme),
+            ),
+          ),
+          _ToolbarSlot(
+            child: QuillToolbarHistoryButton(
+              key: const Key('redo_edit_button'),
+              controller: controller,
+              isUndo: false,
+              options: QuillToolbarHistoryButtonOptions(iconTheme: iconTheme),
+            ),
+          ),
+          _ToolbarSlot(
             child: QuillToolbarToggleStyleButton(
               key: const Key('bold_format_button'),
               controller: controller,
               attribute: Attribute.bold,
+              options: QuillToolbarToggleStyleButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
           _ToolbarSlot(
@@ -328,6 +340,9 @@ class _FormattingToolbar extends StatelessWidget {
               key: const Key('italic_format_button'),
               controller: controller,
               attribute: Attribute.italic,
+              options: QuillToolbarToggleStyleButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
           _ToolbarSlot(
@@ -335,6 +350,9 @@ class _FormattingToolbar extends StatelessWidget {
               key: const Key('underline_format_button'),
               controller: controller,
               attribute: Attribute.underline,
+              options: QuillToolbarToggleStyleButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
           _ToolbarSlot(
@@ -342,6 +360,9 @@ class _FormattingToolbar extends StatelessWidget {
               key: const Key('strike_format_button'),
               controller: controller,
               attribute: Attribute.strikeThrough,
+              options: QuillToolbarToggleStyleButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
           _ToolbarSlot(
@@ -349,6 +370,7 @@ class _FormattingToolbar extends StatelessWidget {
               key: const Key('text_color_button'),
               tooltip: 'Màu chữ',
               onPressed: () => _showTextColorPicker(context),
+              color: normalColor,
               icon: const Icon(Icons.format_color_text_rounded),
             ),
           ),
@@ -357,6 +379,9 @@ class _FormattingToolbar extends StatelessWidget {
               key: const Key('bullet_list_format_button'),
               controller: controller,
               attribute: Attribute.ul,
+              options: QuillToolbarToggleStyleButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
           _ToolbarSlot(
@@ -364,12 +389,18 @@ class _FormattingToolbar extends StatelessWidget {
               key: const Key('number_list_format_button'),
               controller: controller,
               attribute: Attribute.ol,
+              options: QuillToolbarToggleStyleButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
           _ToolbarSlot(
             child: QuillToolbarClearFormatButton(
               key: const Key('clear_format_button'),
               controller: controller,
+              options: QuillToolbarClearFormatButtonOptions(
+                iconTheme: iconTheme,
+              ),
             ),
           ),
         ],
@@ -419,7 +450,11 @@ class _ToolbarSlot extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Center(
-        child: FittedBox(fit: BoxFit.scaleDown, child: child),
+        child: SizedBox(
+          width: 36,
+          height: 36,
+          child: FittedBox(fit: BoxFit.scaleDown, child: child),
+        ),
       ),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_quill/flutter_quill.dart';
@@ -5,6 +7,10 @@ import 'package:flutter_quill/flutter_quill.dart';
 import 'package:tdl_project/main.dart';
 import 'package:tdl_project/models/task_item.dart';
 import 'package:tdl_project/views/home/home_view.dart';
+import 'package:tdl_project/views/tasks/drawing_task_view.dart';
+import 'package:tdl_project/views/tasks/image_task_view.dart';
+import 'package:tdl_project/widgets/drawing_preview.dart';
+import 'package:tdl_project/widgets/image_preview.dart';
 import 'package:tdl_project/widgets/rich_text_preview.dart';
 
 void main() {
@@ -27,12 +33,7 @@ void main() {
     await tester.tap(find.byKey(const Key('google_sign_in_button')));
     await tester.pump();
 
-    expect(
-      find.text(
-        'Đăng nhập Google sẽ được kết nối với Supabase ở bước tiếp theo.',
-      ),
-      findsOneWidget,
-    );
+    expect(find.textContaining('Chưa cấu hình Supabase'), findsOneWidget);
   });
 
   testWidgets('chế độ khách mở màn hình chính và bảng đăng nhập', (
@@ -119,6 +120,11 @@ void main() {
     expect(find.text('Bản vẽ'), findsOneWidget);
     expect(find.text('Văn bản'), findsOneWidget);
     expect(find.text('Hình ảnh'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('create_image_option')));
+    await tester.pumpAndSettle();
+    expect(find.text('Ghi nhớ hình ảnh'), findsOneWidget);
+    expect(find.byKey(const Key('pick_images_button')), findsOneWidget);
   });
 
   testWidgets('nút thùng rác mở danh sách công việc đã xóa', (tester) async {
@@ -146,7 +152,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ghi chú mới'), findsOneWidget);
-    expect(find.textContaining('Đã chỉnh sửa'), findsOneWidget);
+    expect(find.textContaining('Đã chỉnh sửa'), findsNothing);
     await tester.enterText(
       find.byKey(const Key('text_task_title_field')),
       'Học Flutter',
@@ -164,6 +170,12 @@ void main() {
       const TextSelection.collapsed(offset: noteContent.length),
     );
     await tester.pump();
+    await tester.tap(find.byKey(const Key('undo_edit_button')));
+    await tester.pump();
+    expect(editor.controller.document.toPlainText().trim(), isEmpty);
+    await tester.tap(find.byKey(const Key('redo_edit_button')));
+    await tester.pump();
+    expect(editor.controller.document.toPlainText().trim(), noteContent);
     editor.controller.updateSelection(
       const TextSelection(baseOffset: 0, extentOffset: 9),
       ChangeSource.local,
@@ -422,5 +434,218 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Tự động lưu'), findsOneWidget);
+
+    await tester.tap(find.text('Tự động lưu'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('text_task_title_field')), '');
+    await tester.tap(find.byKey(const Key('save_text_task_button')));
+    await tester.pump();
+    expect(find.text('Hãy nhập nội dung để lưu.'), findsOneWidget);
+    expect(find.text('Chỉnh sửa ghi chú'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Tự động lưu'), findsNothing);
+    expect(find.text('Chưa có công việc nào'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('create_task_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('create_text_option')));
+    await tester.pumpAndSettle();
+    final untitledEditor = tester.widget<QuillEditor>(find.byType(QuillEditor));
+    const untitledContent = 'Nội dung không cần tiêu đề';
+    untitledEditor.controller.replaceText(
+      0,
+      0,
+      untitledContent,
+      const TextSelection.collapsed(offset: untitledContent.length),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save_text_task_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(RichTextPreview), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith('task_title_'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('tạo bản vẽ, hoàn tác, làm lại và mở lại để chỉnh sửa', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const TdlApp());
+    await tester.tap(find.byKey(const Key('continue_as_guest_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('create_task_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('create_drawing_option')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bản vẽ mới'), findsOneWidget);
+    expect(find.byKey(const Key('drawing_undo_button')), findsOneWidget);
+    expect(find.byKey(const Key('drawing_redo_button')), findsOneWidget);
+    expect(find.byKey(const Key('drawing_pen_button')), findsOneWidget);
+    expect(find.byKey(const Key('drawing_highlighter_button')), findsOneWidget);
+    expect(find.byKey(const Key('drawing_eraser_button')), findsOneWidget);
+    expect(find.text('Độ dày'), findsNothing);
+    expect(find.textContaining('px'), findsNothing);
+    expect(find.byKey(const Key('drawing_width_preview')), findsOneWidget);
+    final widthSlider = tester.widget<Slider>(
+      find.byKey(const Key('drawing_width_slider')),
+    );
+    expect(widthSlider.min, 1);
+    expect(widthSlider.max, 30);
+
+    await tester.tap(find.byKey(const Key('drawing_pen_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('drawing_color_palette')), findsOneWidget);
+    final paletteColors = find.byWidgetPredicate((widget) {
+      final key = widget.key;
+      return key is ValueKey<String> &&
+          key.value.startsWith('drawing_palette_color_');
+    });
+    expect(paletteColors, findsNWidgets(30));
+    await tester.tap(paletteColors.at(14));
+    await tester.pumpAndSettle();
+
+    final canvasCenter = tester.getCenter(
+      find.byKey(const Key('drawing_canvas')),
+    );
+    final firstFinger = await tester.createGesture(pointer: 21);
+    final secondFinger = await tester.createGesture(pointer: 22);
+    await firstFinger.down(canvasCenter - const Offset(24, 0));
+    await secondFinger.down(canvasCenter + const Offset(24, 0));
+    await firstFinger.moveBy(const Offset(35, 25));
+    await secondFinger.moveBy(const Offset(35, 25));
+    await firstFinger.up();
+    await secondFinger.up();
+    await tester.pump();
+
+    await tester.dragFrom(
+      canvasCenter - const Offset(50, 30),
+      const Offset(100, 60),
+    );
+    await tester.pump();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('drawing_undo_button')))
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.tap(find.byKey(const Key('drawing_undo_button')));
+    await tester.pump();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('drawing_redo_button')))
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(find.byKey(const Key('drawing_redo_button')));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('drawing_highlighter_button')));
+    await tester.dragFrom(canvasCenter, const Offset(80, 0));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('drawing_eraser_button')));
+    await tester.dragFrom(canvasCenter, const Offset(0, 55));
+    await tester.pump();
+
+    await tester.tap(find.byKey(const Key('save_drawing_task_button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(DrawingPreview), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith('task_title_'),
+      ),
+      findsNothing,
+    );
+    expect(find.byIcon(Icons.draw_rounded), findsOneWidget);
+
+    await tester.tap(find.byType(DrawingPreview));
+    await tester.pumpAndSettle();
+    expect(find.text('Chỉnh sửa bản vẽ'), findsOneWidget);
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('drawing_undo_button')))
+          .onPressed,
+      isNotNull,
+    );
+  });
+
+  testWidgets('chọn nhiều ảnh, nhập nội dung và lưu công việc hình ảnh', (
+    tester,
+  ) async {
+    const tinyPng =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    ImageTaskDraft? savedDraft;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ImageTaskView(
+          pickImages: () async => [
+            base64Decode(tinyPng),
+            base64Decode(tinyPng),
+          ],
+          onSave: (draft) => savedDraft = draft,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('pick_images_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('selected_image_grid')), findsOneWidget);
+    expect(find.byType(Image), findsNWidgets(2));
+    await tester.enterText(
+      find.byKey(const Key('image_task_title_field')),
+      'Ảnh cần nhớ',
+    );
+    await tester.enterText(
+      find.byKey(const Key('image_task_content_field')),
+      'Nội dung đi cùng hình ảnh',
+    );
+    await tester.tap(find.byKey(const Key('save_image_task_button')));
+    await tester.pump();
+
+    expect(savedDraft, isNotNull);
+    expect(savedDraft!.title, 'Ảnh cần nhớ');
+    expect(savedDraft!.description, 'Nội dung đi cùng hình ảnh');
+    expect((jsonDecode(savedDraft!.imageDataJson) as List<dynamic>).length, 2);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: SizedBox(
+          width: 240,
+          height: 140,
+          child: ImagePreview(imageDataJson: savedDraft!.imageDataJson),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(Image), findsNWidgets(2));
+  });
+
+  testWidgets('canvas bản vẽ đổi sang nền tối theo giao diện', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: DrawingTaskView(onSave: (_) {}),
+      ),
+    );
+
+    final canvasBackground = tester.widget<ColoredBox>(
+      find.descendant(
+        of: find.byKey(const Key('drawing_canvas')),
+        matching: find.byType(ColoredBox),
+      ),
+    );
+    expect(canvasBackground.color, const Color(0xFF101820));
   });
 }

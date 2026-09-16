@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../models/task_item.dart';
 import '../../widgets/brand_logo.dart';
+import '../../widgets/drawing_preview.dart';
 import '../../widgets/google_logo.dart';
+import '../../widgets/image_preview.dart';
 import '../../widgets/rich_text_preview.dart';
 
 const _deepBlue = Color(0xFF1976D2);
@@ -707,7 +709,7 @@ class _TaskCollection extends StatelessWidget {
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        mainAxisExtent: 164,
+        mainAxisExtent: 184,
       ),
       itemCount: tasks.length,
       itemBuilder: (_, index) => _TaskTile(
@@ -768,30 +770,56 @@ class _TaskTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        task.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: titleColor,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
+                      if (task.title.isNotEmpty)
+                        Text(
+                          task.title,
+                          key: Key('task_title_${task.id}'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: titleColor,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                      ),
-                      if (task.description != null) ...[
-                        const SizedBox(height: 5),
-                        RichTextPreview(
-                          key: Key('task_preview_${task.id}'),
-                          richTextJson: task.richTextJson,
-                          plainText: task.description,
-                          height: 48,
+                      if (task.contentType == TaskContentType.drawing) ...[
+                        if (task.title.isNotEmpty) const SizedBox(height: 6),
+                        Expanded(
+                          child: DrawingPreview(
+                            key: Key('drawing_preview_${task.id}'),
+                            drawingJson: task.drawingJson,
+                          ),
                         ),
+                        const SizedBox(height: 7),
+                      ] else if (task.contentType == TaskContentType.image) ...[
+                        if (task.title.isNotEmpty) const SizedBox(height: 6),
+                        Expanded(
+                          child: ImagePreview(
+                            key: Key('image_preview_${task.id}'),
+                            imageDataJson: task.imageDataJson,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                      ] else ...[
+                        if (task.description != null) ...[
+                          if (task.title.isNotEmpty) const SizedBox(height: 5),
+                          RichTextPreview(
+                            key: Key('task_preview_${task.id}'),
+                            richTextJson: task.richTextJson,
+                            plainText: task.description,
+                            height: task.title.isEmpty ? 70 : 48,
+                          ),
+                        ],
+                        const Spacer(),
                       ],
-                      const Spacer(),
                       Row(
                         children: [
-                          const Icon(
-                            Icons.notes_rounded,
+                          Icon(
+                            task.contentType == TaskContentType.drawing
+                                ? Icons.draw_rounded
+                                : task.contentType == TaskContentType.image
+                                ? Icons.image_rounded
+                                : Icons.notes_rounded,
                             size: 16,
                             color: _deepBlue,
                           ),
