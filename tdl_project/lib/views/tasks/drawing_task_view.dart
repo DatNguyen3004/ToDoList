@@ -74,6 +74,7 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
   late final TextEditingController _titleController;
   final List<_DrawingStroke> _strokes = [];
   final List<_DrawingStroke> _redoStrokes = [];
+  int _undoBoundary = 0;
   final Map<int, Offset> _activePointers = {};
   _DrawingStroke? _currentStroke;
   int? _drawingPointer;
@@ -107,13 +108,27 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
   void _loadDrawing(String? drawingJson) {
     if (drawingJson == null || drawingJson.isEmpty) return;
     try {
-      final decoded = jsonDecode(drawingJson) as List<dynamic>;
+      final decoded = jsonDecode(drawingJson);
+      final strokeData = decoded is Map<String, dynamic>
+          ? decoded['strokes'] as List<dynamic>? ?? const <dynamic>[]
+          : decoded as List<dynamic>;
       _strokes.addAll(
-        decoded.map(
+        strokeData.map(
           (item) => _DrawingStroke.fromJson(item as Map<String, dynamic>),
         ),
       );
-    } on FormatException {
+      if (decoded is Map<String, dynamic>) {
+        final redoData =
+            decoded['redoStrokes'] as List<dynamic>? ?? const <dynamic>[];
+        _redoStrokes.addAll(
+          redoData.map(
+            (item) => _DrawingStroke.fromJson(item as Map<String, dynamic>),
+          ),
+        );
+        _undoBoundary = (decoded['undoBoundary'] as num?)?.toInt() ?? 0;
+        _undoBoundary = _undoBoundary.clamp(0, _strokes.length);
+      }
+    } on Object {
       // Ignore invalid drawings saved by an unfinished older version.
     }
   }
@@ -188,7 +203,7 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
   }
 
   void _undo() {
-    if (_strokes.isEmpty) return;
+    if (_strokes.length <= _undoBoundary) return;
     setState(() => _redoStrokes.add(_strokes.removeLast()));
   }
 
@@ -217,7 +232,7 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
     }
   }
 
-  void _save() {
+  void _save({bool clearHistory = true}) {
     final rawTitle = _titleController.text.trim();
     if (rawTitle.isEmpty && _strokes.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -228,14 +243,23 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
       return;
     }
 
+    if (clearHistory) {
+      _redoStrokes.clear();
+      _undoBoundary = _strokes.length;
+    }
     widget.onSave(
       DrawingTaskDraft(
         title: rawTitle,
-        drawingJson: jsonEncode(
-          _strokes
+        drawingJson: jsonEncode({
+          'version': 2,
+          'strokes': _strokes
               .map((stroke) => stroke.toJson(canvasOffset: _canvasOffset))
               .toList(),
-        ),
+          'redoStrokes': _redoStrokes
+              .map((stroke) => stroke.toJson(canvasOffset: _canvasOffset))
+              .toList(),
+          'undoBoundary': _undoBoundary,
+        }),
         strokeCount: _strokes.length,
       ),
     );
@@ -245,7 +269,7 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
   void _handleBack() {
     if (_isClosing) return;
     if (_titleController.text.trim().isNotEmpty || _strokes.isNotEmpty) {
-      _save();
+      _save(clearHistory: false);
     } else {
       if (_isEditing) widget.onDeleteEmpty?.call();
       _closePage();
@@ -355,7 +379,9 @@ class _DrawingTaskViewState extends State<DrawingTaskView> {
                               child: IconButton(
                                 key: const Key('drawing_undo_button'),
                                 tooltip: 'Hoàn tác',
-                                onPressed: _strokes.isEmpty ? null : _undo,
+                                onPressed: _strokes.length <= _undoBoundary
+                                    ? null
+                                    : _undo,
                                 color: isDark
                                     ? const Color(0xFFEAF5FF)
                                     : const Color(0xFF202124),

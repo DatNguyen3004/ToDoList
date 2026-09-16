@@ -1,34 +1,70 @@
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui' show PointMode;
 
 import 'package:flutter/material.dart';
 
-class DrawingPreview extends StatelessWidget {
+class DrawingPreview extends StatefulWidget {
   const DrawingPreview({required this.drawingJson, super.key});
 
   final String? drawingJson;
 
+  @override
+  State<DrawingPreview> createState() => _DrawingPreviewState();
+}
+
+class _DrawingPreviewState extends State<DrawingPreview> {
+  static const _cacheLimit = 24;
+  static final LinkedHashMap<String, List<_PreviewStroke>> _cache =
+      LinkedHashMap();
+
+  late List<_PreviewStroke> _strokes;
+
+  @override
+  void initState() {
+    super.initState();
+    _strokes = _loadStrokes();
+  }
+
+  @override
+  void didUpdateWidget(covariant DrawingPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.drawingJson != widget.drawingJson) {
+      _strokes = _loadStrokes();
+    }
+  }
+
   List<_PreviewStroke> _loadStrokes() {
-    final source = drawingJson;
+    final source = widget.drawingJson;
     if (source == null || source.isEmpty) return const [];
+    final cached = _cache.remove(source);
+    if (cached != null) {
+      _cache[source] = cached;
+      return cached;
+    }
     try {
-      final decoded = jsonDecode(source) as List<dynamic>;
-      return decoded
+      final decoded = jsonDecode(source);
+      final strokeData = decoded is Map<String, dynamic>
+          ? decoded['strokes'] as List<dynamic>? ?? const <dynamic>[]
+          : decoded as List<dynamic>;
+      final strokes = strokeData
           .map((item) => _PreviewStroke.fromJson(item as Map<String, dynamic>))
           .toList();
-    } on FormatException {
+      _cache[source] = strokes;
+      if (_cache.length > _cacheLimit) _cache.remove(_cache.keys.first);
+      return strokes;
+    } on Object {
       return const [];
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final strokes = _loadStrokes();
     return ClipRRect(
       borderRadius: BorderRadius.circular(9),
       child: SizedBox.expand(
-        child: strokes.isEmpty
+        child: _strokes.isEmpty
             ? const Center(
                 child: Icon(
                   Icons.draw_outlined,
@@ -37,7 +73,7 @@ class DrawingPreview extends StatelessWidget {
                 ),
               )
             : CustomPaint(
-                painter: _DrawingPreviewPainter(strokes),
+                painter: _DrawingPreviewPainter(_strokes),
                 child: const SizedBox.expand(),
               ),
       ),

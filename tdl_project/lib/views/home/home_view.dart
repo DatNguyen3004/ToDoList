@@ -25,9 +25,11 @@ class HomeView extends StatefulWidget {
     required this.onCreateDrawing,
     required this.onCreateText,
     required this.onCreateImage,
+    required this.onCreateVoice,
     required this.tasks,
     required this.onDeleteTask,
     required this.onOpenTask,
+    this.isLoadingTasks = false,
     this.userPhotoUrl,
     this.displayName,
     this.email,
@@ -45,7 +47,9 @@ class HomeView extends StatefulWidget {
   final VoidCallback onCreateDrawing;
   final VoidCallback onCreateText;
   final VoidCallback onCreateImage;
+  final VoidCallback onCreateVoice;
   final List<TaskItem> tasks;
+  final bool isLoadingTasks;
   final ValueChanged<String> onDeleteTask;
   final ValueChanged<String> onOpenTask;
 
@@ -64,6 +68,35 @@ class _HomeViewState extends State<HomeView> {
     super.dispose();
   }
 
+  Future<bool> _confirmSignOut(BuildContext context) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Đăng xuất?'),
+            content: const Text(
+              'Bạn có chắc muốn đăng xuất khỏi tài khoản Google này không?',
+            ),
+            actions: [
+              TextButton(
+                key: const Key('cancel_sign_out_button'),
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Hủy'),
+              ),
+              FilledButton(
+                key: const Key('confirm_sign_out_button'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFD14343),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Đăng xuất'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   void _openAccountPanel(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
@@ -79,7 +112,9 @@ class _HomeViewState extends State<HomeView> {
           Navigator.pop(sheetContext);
           widget.onGoogleSignIn();
         },
-        onSignOut: () {
+        onSignOut: () async {
+          final confirmed = await _confirmSignOut(sheetContext);
+          if (!confirmed || !sheetContext.mounted) return;
           Navigator.pop(sheetContext);
           widget.onSignOut();
         },
@@ -104,6 +139,10 @@ class _HomeViewState extends State<HomeView> {
         onCreateImage: () {
           Navigator.pop(sheetContext);
           widget.onCreateImage();
+        },
+        onCreateVoice: () {
+          Navigator.pop(sheetContext);
+          widget.onCreateVoice();
         },
       ),
     );
@@ -165,6 +204,7 @@ class _HomeViewState extends State<HomeView> {
                             child: _AccountAvatar(
                               isSignedIn: widget.isSignedIn,
                               photoUrl: widget.userPhotoUrl,
+                              fallbackLabel: widget.displayName ?? widget.email,
                               size: 46,
                             ),
                           ),
@@ -223,7 +263,9 @@ class _HomeViewState extends State<HomeView> {
                   ),
                   const SizedBox(height: 10),
                   Expanded(
-                    child: visibleTasks.isEmpty
+                    child: widget.isLoadingTasks
+                        ? const _LoadingTaskState()
+                        : visibleTasks.isEmpty
                         ? _EmptyTaskState(
                             isSearching: _searchController.text
                                 .trim()
@@ -253,6 +295,34 @@ class _HomeViewState extends State<HomeView> {
           'Thêm công việc',
           style: TextStyle(fontWeight: FontWeight.w800),
         ),
+      ),
+    );
+  }
+}
+
+class _LoadingTaskState extends StatelessWidget {
+  const _LoadingTaskState();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox.square(
+            dimension: 34,
+            child: CircularProgressIndicator(strokeWidth: 3),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Đang đồng bộ công việc…',
+            style: TextStyle(
+              color: isDark ? const Color(0xFFA8C1D4) : _mutedInk,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -291,11 +361,13 @@ class _CreateTaskPanel extends StatelessWidget {
     required this.onCreateDrawing,
     required this.onCreateText,
     required this.onCreateImage,
+    required this.onCreateVoice,
   });
 
   final VoidCallback onCreateDrawing;
   final VoidCallback onCreateText;
   final VoidCallback onCreateImage;
+  final VoidCallback onCreateVoice;
 
   @override
   Widget build(BuildContext context) {
@@ -367,6 +439,15 @@ class _CreateTaskPanel extends StatelessWidget {
               description: 'Chọn hình ảnh có sẵn từ thiết bị.',
               color: const Color(0xFF21A179),
               onTap: onCreateImage,
+            ),
+            const SizedBox(height: 10),
+            _CreateTaskOption(
+              key: const Key('create_voice_option'),
+              icon: Icons.mic_rounded,
+              title: 'Giọng nói',
+              description: 'Nói để nhập nhanh nội dung ghi chú.',
+              color: const Color(0xFFE05A77),
+              onTap: onCreateVoice,
             ),
           ],
         ),
@@ -695,6 +776,7 @@ class _TaskCollection extends StatelessWidget {
         itemBuilder: (_, index) => SizedBox(
           height: 164,
           child: _TaskTile(
+            key: ValueKey(tasks[index].id),
             task: tasks[index],
             onDelete: () => onDeleteTask(tasks[index].id),
             onOpen: () => onOpenTask(tasks[index].id),
@@ -713,6 +795,7 @@ class _TaskCollection extends StatelessWidget {
       ),
       itemCount: tasks.length,
       itemBuilder: (_, index) => _TaskTile(
+        key: ValueKey(tasks[index].id),
         task: tasks[index],
         onDelete: () => onDeleteTask(tasks[index].id),
         onOpen: () => onOpenTask(tasks[index].id),
@@ -726,6 +809,7 @@ class _TaskTile extends StatelessWidget {
     required this.task,
     required this.onDelete,
     required this.onOpen,
+    super.key,
   });
 
   final TaskItem task;
@@ -895,12 +979,34 @@ class _AccountAvatar extends StatelessWidget {
   const _AccountAvatar({
     required this.isSignedIn,
     required this.photoUrl,
+    required this.fallbackLabel,
     required this.size,
   });
 
   final bool isSignedIn;
   final String? photoUrl;
+  final String? fallbackLabel;
   final double size;
+
+  Widget _fallbackAvatar() {
+    final label = fallbackLabel?.trim() ?? '';
+    if (!isSignedIn || label.isEmpty) {
+      return const Icon(Icons.person_rounded, color: _deepBlue);
+    }
+    return ColoredBox(
+      color: _deepBlue,
+      child: Center(
+        child: Text(
+          label.characters.first.toUpperCase(),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: size * 0.42,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -912,17 +1018,27 @@ class _AccountAvatar extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFFE6F4FF),
         shape: BoxShape.circle,
-        border: Border.all(color: const Color(0xFFB9DDFC), width: 1.5),
+        border: hasPhoto
+            ? null
+            : Border.all(color: const Color(0xFFB9DDFC), width: 1.5),
       ),
       clipBehavior: Clip.antiAlias,
       child: hasPhoto
-          ? Image.network(
-              photoUrl!,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) =>
-                  const Icon(Icons.person_rounded, color: _deepBlue),
+          ? Transform.scale(
+              scale: 1.1,
+              child: Image.network(
+                photoUrl!,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                // Use Flutter's normal image cache on web to avoid creating
+                // repeated HTML image requests (which can trigger Google's
+                // 429 rate limit for avatar URLs).
+                cacheWidth: (size * 2).round(),
+                errorBuilder: (_, _, _) => _fallbackAvatar(),
+              ),
             )
-          : const Icon(Icons.person_rounded, color: _deepBlue),
+          : _fallbackAvatar(),
     );
   }
 }
@@ -972,6 +1088,7 @@ class _AccountPanel extends StatelessWidget {
             _AccountAvatar(
               isSignedIn: isSignedIn,
               photoUrl: userPhotoUrl,
+              fallbackLabel: displayName ?? email,
               size: 66,
             ),
             const SizedBox(height: 14),

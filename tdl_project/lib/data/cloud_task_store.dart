@@ -28,11 +28,12 @@ class CloudTaskStore implements TaskStore {
       final row = Map<String, dynamic>.from(rawRow);
       final imagePaths = (row['image_paths'] as List<dynamic>? ?? const [])
           .cast<String>();
-      final encodedImages = <String>[];
-      for (final path in imagePaths) {
-        final bytes = await client.storage.from(_bucket).download(path);
-        encodedImages.add(base64Encode(bytes));
-      }
+      final encodedImages = await Future.wait(
+        imagePaths.map((path) async {
+          final bytes = await client.storage.from(_bucket).download(path);
+          return base64Encode(bytes);
+        }),
+      );
 
       tasks.add(
         TaskItem(

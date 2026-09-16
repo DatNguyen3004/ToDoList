@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/task_item.dart';
+import '../../services/image_download.dart';
 
 const _primaryBlue = Color(0xFF1976D2);
 
@@ -42,6 +43,8 @@ class _ImageTaskViewState extends State<ImageTaskView> {
   late final TextEditingController _titleController;
   late final TextEditingController _contentController;
   final List<Uint8List> _images = [];
+  final List<List<Uint8List>> _undoImages = [];
+  final List<List<Uint8List>> _redoImages = [];
   bool _isPicking = false;
   bool _canPop = false;
   bool _isClosing = false;
@@ -88,7 +91,10 @@ class _ImageTaskViewState extends State<ImageTaskView> {
           ? await widget.pickImages!()
           : await _pickFromDevice();
       if (!mounted || pickedImages.isEmpty) return;
-      setState(() => _images.addAll(pickedImages));
+      setState(() {
+        _saveImageHistory();
+        _images.addAll(pickedImages);
+      });
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -103,6 +109,42 @@ class _ImageTaskViewState extends State<ImageTaskView> {
     }
   }
 
+  void _saveImageHistory() {
+    _undoImages.add(_images.map(Uint8List.fromList).toList());
+    _redoImages.clear();
+  }
+
+  void _restoreImageState(List<Uint8List> state) {
+    _images
+      ..clear()
+      ..addAll(state.map(Uint8List.fromList));
+  }
+
+  void _undo() {
+    if (_undoImages.isEmpty) return;
+    setState(() {
+      _redoImages.add(_images.map(Uint8List.fromList).toList());
+      _restoreImageState(_undoImages.removeLast());
+    });
+  }
+
+  void _redo() {
+    if (_redoImages.isEmpty) return;
+    setState(() {
+      _undoImages.add(_images.map(Uint8List.fromList).toList());
+      _restoreImageState(_redoImages.removeLast());
+    });
+  }
+
+  Future<void> _openImageViewer(int initialIndex) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) =>
+            _ImageViewer(images: _images, initialIndex: initialIndex),
+      ),
+    );
+  }
+
   Future<List<Uint8List>> _pickFromDevice() async {
     final files = await ImagePicker().pickMultiImage(
       imageQuality: 88,
@@ -111,7 +153,7 @@ class _ImageTaskViewState extends State<ImageTaskView> {
     return Future.wait(files.map((file) => file.readAsBytes()));
   }
 
-  void _save() {
+  void _save({bool clearHistory = true}) {
     if (!_hasContent) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -129,13 +171,17 @@ class _ImageTaskViewState extends State<ImageTaskView> {
         imageDataJson: jsonEncode(_images.map(base64Encode).toList()),
       ),
     );
+    if (clearHistory) {
+      _undoImages.clear();
+      _redoImages.clear();
+    }
     _closePage();
   }
 
   void _handleBack() {
     if (_isClosing) return;
     if (_hasContent) {
-      _save();
+      _save(clearHistory: false);
     } else {
       if (_isEditing) widget.onDeleteEmpty?.call();
       _closePage();
@@ -168,6 +214,18 @@ class _ImageTaskViewState extends State<ImageTaskView> {
             style: const TextStyle(fontWeight: FontWeight.w800),
           ),
           actions: [
+            IconButton(
+              key: const Key('image_undo_button'),
+              tooltip: 'Hoàn tác',
+              onPressed: _undoImages.isEmpty ? null : _undo,
+              icon: const Icon(Icons.undo_rounded),
+            ),
+            IconButton(
+              key: const Key('image_redo_button'),
+              tooltip: 'Làm lại',
+              onPressed: _redoImages.isEmpty ? null : _redo,
+              icon: const Icon(Icons.redo_rounded),
+            ),
             FilledButton(
               key: const Key('save_image_task_button'),
               onPressed: _save,
@@ -253,11 +311,19 @@ class _ImageTaskViewState extends State<ImageTaskView> {
                                   itemBuilder: (context, index) => Stack(
                                     fit: StackFit.expand,
                                     children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: Image.memory(
-                                          _images[index],
-                                          fit: BoxFit.cover,
+                                      GestureDetector(
+                                        onTap: () => _openImageViewer(index),
+                                        child: Hero(
+                                          tag: 'tdl-image-$index',
+                                          child: ClipRRect(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                            child: Image.memory(
+                                              _images[index],
+                                              fit: BoxFit.cover,
+                                            ),
+                                          ),
                                         ),
                                       ),
                                       Positioned(
@@ -266,9 +332,10 @@ class _ImageTaskViewState extends State<ImageTaskView> {
                                         child: IconButton.filled(
                                           key: Key('remove_image_$index'),
                                           tooltip: 'Bỏ ảnh',
-                                          onPressed: () => setState(
-                                            () => _images.removeAt(index),
-                                          ),
+                                          onPressed: () => setState(() {
+                                            _saveImageHistory();
+                                            _images.removeAt(index);
+                                          }),
                                           style: IconButton.styleFrom(
                                             backgroundColor: Colors.black54,
                                             foregroundColor: Colors.white,
@@ -314,6 +381,104 @@ class _ImageTaskViewState extends State<ImageTaskView> {
                   ),
                 ),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ImageViewer extends StatefulWidget {
+  const _ImageViewer({required this.images, required this.initialIndex});
+
+  final List<Uint8List> images;
+  final int initialIndex;
+
+  @override
+  State<_ImageViewer> createState() => _ImageViewerState();
+}
+
+class _ImageViewerState extends State<_ImageViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+  bool _isDownloading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: _currentIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _downloadCurrent() async {
+    if (_isDownloading) return;
+    setState(() => _isDownloading = true);
+    try {
+      await downloadImage(widget.images[_currentIndex]);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã lưu ảnh vào thư viện.')),
+        );
+      }
+    } on StateError catch (error) {
+      if (mounted) {
+        final message = error.message == 'gallery_permission_denied'
+            ? 'Chưa được cấp quyền lưu ảnh vào thư viện.'
+            : 'Không thể lưu ảnh vào thư viện.';
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(message)));
+      }
+    } on Object catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không thể lưu ảnh vào thư viện.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_currentIndex + 1}/${widget.images.length}'),
+        actions: [
+          IconButton(
+            key: const Key('download_image_button'),
+            tooltip: 'Tải ảnh về thiết bị',
+            onPressed: _isDownloading ? null : _downloadCurrent,
+            icon: _isDownloading
+                ? const SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.download_rounded),
+          ),
+        ],
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.images.length,
+        onPageChanged: (index) => setState(() => _currentIndex = index),
+        itemBuilder: (_, index) => Center(
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Hero(
+              tag: 'tdl-image-$index',
+              child: Image.memory(widget.images[index], fit: BoxFit.contain),
             ),
           ),
         ),

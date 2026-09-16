@@ -12,6 +12,11 @@ class AuthService {
 
   Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
 
+  Future<User?> refreshCurrentUser() async {
+    if (_client.auth.currentSession == null) return null;
+    return (await _client.auth.getUser()).user;
+  }
+
   Future<void> signInWithGoogle() async {
     await _client.auth.signInWithOAuth(
       OAuthProvider.google,
@@ -19,6 +24,7 @@ class AuthService {
       authScreenLaunchMode: kIsWeb
           ? LaunchMode.platformDefault
           : LaunchMode.externalApplication,
+      queryParams: const {'prompt': 'select_account'},
     );
   }
 

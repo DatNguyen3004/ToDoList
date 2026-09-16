@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>TDL cần dùng micro để chuyển lời nói của bạn thành nội dung ghi chú.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>TDL cần nhận dạng giọng nói để tạo nội dung ghi chú.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>TDL cần truy cập thư viện để bạn chọn hình ảnh cần ghi nhớ.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>

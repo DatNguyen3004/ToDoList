@@ -4,16 +4,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_quill/flutter_quill.dart';
 
+import 'package:tdl_project/controllers/task_controller.dart';
 import 'package:tdl_project/main.dart';
 import 'package:tdl_project/models/task_item.dart';
 import 'package:tdl_project/views/home/home_view.dart';
 import 'package:tdl_project/views/tasks/drawing_task_view.dart';
 import 'package:tdl_project/views/tasks/image_task_view.dart';
+import 'package:tdl_project/views/trash/trash_view.dart';
 import 'package:tdl_project/widgets/drawing_preview.dart';
 import 'package:tdl_project/widgets/image_preview.dart';
 import 'package:tdl_project/widgets/rich_text_preview.dart';
 
 void main() {
+  testWidgets('màn hình khởi động hiển thị logo khi đang tải', (tester) async {
+    await tester.pumpWidget(const StartupSplash());
+
+    expect(find.byKey(const Key('startup_brand_logo')), findsOneWidget);
+    expect(find.text('TDL'), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+  });
+
   testWidgets('hiển thị đầy đủ lựa chọn đăng nhập', (tester) async {
     await tester.pumpWidget(const TdlApp());
 
@@ -78,6 +88,7 @@ void main() {
   });
 
   testWidgets('tài khoản đã đăng nhập hiển thị nút đăng xuất', (tester) async {
+    var signedOut = false;
     await tester.pumpWidget(
       MaterialApp(
         home: HomeView(
@@ -88,12 +99,13 @@ void main() {
           displayName: 'Nguyễn An',
           email: 'an@example.com',
           onGoogleSignIn: () {},
-          onSignOut: () {},
+          onSignOut: () => signedOut = true,
           onThemeChanged: (_) {},
           onOpenTrash: () {},
           onCreateDrawing: () {},
           onCreateText: () {},
           onCreateImage: () {},
+          onCreateVoice: () {},
         ),
       ),
     );
@@ -104,6 +116,22 @@ void main() {
     expect(find.text('Nguyễn An'), findsOneWidget);
     expect(find.text('an@example.com'), findsOneWidget);
     expect(find.byKey(const Key('sign_out_button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('sign_out_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Đăng xuất?'), findsOneWidget);
+    expect(signedOut, isFalse);
+
+    await tester.tap(find.byKey(const Key('cancel_sign_out_button')));
+    await tester.pumpAndSettle();
+    expect(signedOut, isFalse);
+    expect(find.byKey(const Key('sign_out_button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('sign_out_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm_sign_out_button')));
+    await tester.pumpAndSettle();
+    expect(signedOut, isTrue);
   });
 
   testWidgets('nút thêm công việc hiển thị ba loại nội dung', (tester) async {
@@ -399,6 +427,15 @@ void main() {
         trashGrid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
     expect(trashDelegate.crossAxisCount, 2);
 
+    await tester.tap(find.byKey(const Key('trash_list_view_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('trash_task_list')), findsOneWidget);
+    expect(find.byKey(const Key('trash_task_grid')), findsNothing);
+
+    await tester.tap(find.byKey(const Key('trash_cards_view_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('trash_task_grid')), findsOneWidget);
+
     await tester.tap(find.byKey(const Key('delete_forever_button')));
     await tester.pumpAndSettle();
     expect(find.text('Xóa vĩnh viễn?'), findsOneWidget);
@@ -556,7 +593,8 @@ void main() {
     await tester.dragFrom(canvasCenter, const Offset(0, 55));
     await tester.pump();
 
-    await tester.tap(find.byKey(const Key('save_drawing_task_button')));
+    // Quay về tự lưu nhưng phải giữ lịch sử hoàn tác.
+    await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.byType(DrawingPreview), findsOneWidget);
     expect(
@@ -577,6 +615,24 @@ void main() {
           .widget<IconButton>(find.byKey(const Key('drawing_undo_button')))
           .onPressed,
       isNotNull,
+    );
+
+    // Lưu chủ động sẽ xác nhận trạng thái hiện tại và xóa lịch sử.
+    await tester.tap(find.byKey(const Key('save_drawing_task_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DrawingPreview));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('drawing_undo_button')))
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<IconButton>(find.byKey(const Key('drawing_redo_button')))
+          .onPressed,
+      isNull,
     );
   });
 
@@ -647,5 +703,51 @@ void main() {
       ),
     );
     expect(canvasBackground.color, const Color(0xFF101820));
+  });
+
+  testWidgets('thùng rác hiển thị ảnh, bản vẽ ở cả hai kiểu xem', (
+    tester,
+  ) async {
+    const tinyPng =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    final controller = TaskController();
+    controller.addDrawingTask(
+      title: '',
+      drawingJson: jsonEncode([
+        {
+          'tool': 'pen',
+          'color': 0xFFFF0000,
+          'width': 4.0,
+          'points': [
+            [0.0, 0.0],
+            [30.0, 20.0],
+          ],
+        },
+      ]),
+      strokeCount: 1,
+    );
+    controller.addImageTask(
+      title: 'Ảnh đã xóa',
+      imageDataJson: jsonEncode([tinyPng]),
+    );
+    for (final task in List<TaskItem>.of(controller.activeTasks)) {
+      controller.moveToTrash(task.id);
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(home: TrashView(taskController: controller)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DrawingPreview), findsOneWidget);
+    expect(find.byType(ImagePreview), findsOneWidget);
+    expect(find.byKey(const Key('trash_task_grid')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('trash_list_view_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('trash_task_list')), findsOneWidget);
+    expect(find.byType(DrawingPreview), findsOneWidget);
+    expect(find.byType(ImagePreview), findsOneWidget);
   });
 }

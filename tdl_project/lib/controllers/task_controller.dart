@@ -11,9 +11,16 @@ class TaskController extends ChangeNotifier {
   TaskStore _store;
   final List<TaskItem> _tasks = [];
   Future<void> _pendingWrite = Future.value();
+  int _idSequence = 0;
+  int _storeGeneration = 0;
+
+  String _newTaskId(DateTime now) =>
+      '${now.microsecondsSinceEpoch}-${_idSequence++}';
 
   Future<void> load() async {
+    final generation = _storeGeneration;
     final storedTasks = await _store.loadTasks();
+    if (generation != _storeGeneration) return;
     _tasks
       ..clear()
       ..addAll(storedTasks);
@@ -22,7 +29,10 @@ class TaskController extends ChangeNotifier {
 
   Future<void> useStore(TaskStore store) async {
     await _pendingWrite;
+    _storeGeneration++;
     _store = store;
+    _tasks.clear();
+    notifyListeners();
     await load();
   }
 
@@ -43,7 +53,7 @@ class TaskController extends ChangeNotifier {
     final now = DateTime.now();
     _tasks.add(
       TaskItem(
-        id: now.microsecondsSinceEpoch.toString(),
+        id: _newTaskId(now),
         title: title.trim(),
         description: description?.trim().isEmpty ?? true
             ? null
@@ -93,7 +103,7 @@ class TaskController extends ChangeNotifier {
     final now = DateTime.now();
     _tasks.add(
       TaskItem(
-        id: now.microsecondsSinceEpoch.toString(),
+        id: _newTaskId(now),
         title: title.trim(),
         description: '$strokeCount nét vẽ',
         drawingJson: drawingJson,
@@ -130,7 +140,7 @@ class TaskController extends ChangeNotifier {
     final now = DateTime.now();
     _tasks.add(
       TaskItem(
-        id: now.microsecondsSinceEpoch.toString(),
+        id: _newTaskId(now),
         title: title.trim(),
         description: description?.trim().isEmpty ?? true
             ? null

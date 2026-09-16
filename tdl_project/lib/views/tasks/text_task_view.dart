@@ -114,7 +114,7 @@ class _TextTaskViewState extends State<TextTaskView> {
     return true;
   }
 
-  void _save() {
+  void _save({bool clearHistory = true}) {
     final rawTitle = _titleController.text.trim();
     final description = _contentController.document.toPlainText().trim();
 
@@ -127,6 +127,9 @@ class _TextTaskViewState extends State<TextTaskView> {
       return;
     }
 
+    if (clearHistory) {
+      _contentController.document.history.clear();
+    }
     widget.onSave(
       TextTaskDraft(
         title: rawTitle,
@@ -148,7 +151,7 @@ class _TextTaskViewState extends State<TextTaskView> {
         .trim()
         .isNotEmpty;
     if (hasTitle || hasContent) {
-      _save();
+      _save(clearHistory: false);
     } else {
       if (_isEditing) widget.onDeleteEmpty?.call();
       _closePage();

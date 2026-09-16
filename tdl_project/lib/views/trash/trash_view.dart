@@ -2,16 +2,27 @@ import 'package:flutter/material.dart';
 
 import '../../controllers/task_controller.dart';
 import '../../models/task_item.dart';
+import '../../widgets/drawing_preview.dart';
+import '../../widgets/image_preview.dart';
 import '../../widgets/rich_text_preview.dart';
 
 const _deepBlue = Color(0xFF1976D2);
 const _ink = Color(0xFF17324D);
 const _mutedInk = Color(0xFF6F8192);
 
-class TrashView extends StatelessWidget {
+enum TrashViewMode { cards, list }
+
+class TrashView extends StatefulWidget {
   const TrashView({required this.taskController, super.key});
 
   final TaskController taskController;
+
+  @override
+  State<TrashView> createState() => _TrashViewState();
+}
+
+class _TrashViewState extends State<TrashView> {
+  TrashViewMode _viewMode = TrashViewMode.cards;
 
   @override
   Widget build(BuildContext context) {
@@ -22,23 +33,122 @@ class TrashView extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
         centerTitle: true,
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        surfaceTintColor: Theme.of(context).colorScheme.surface,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        surfaceTintColor: Theme.of(context).scaffoldBackgroundColor,
       ),
       body: SafeArea(
         child: AnimatedBuilder(
-          animation: taskController,
+          animation: widget.taskController,
           builder: (context, _) {
-            final tasks = taskController.deletedTasks;
-            return tasks.isEmpty
-                ? const _EmptyTrashState()
-                : _DeletedTaskGrid(
+            final tasks = widget.taskController.deletedTasks;
+            if (tasks.isEmpty) return const _EmptyTrashState();
+            return Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: _TrashViewToggle(
+                      viewMode: _viewMode,
+                      onChanged: (mode) => setState(() => _viewMode = mode),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: _DeletedTaskCollection(
                     tasks: tasks,
-                    onRestore: taskController.restore,
-                    onDeleteForever: taskController.deleteForever,
-                  );
+                    viewMode: _viewMode,
+                    onRestore: widget.taskController.restore,
+                    onDeleteForever: widget.taskController.deleteForever,
+                  ),
+                ),
+              ],
+            );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _TrashViewToggle extends StatelessWidget {
+  const _TrashViewToggle({required this.viewMode, required this.onChanged});
+
+  final TrashViewMode viewMode;
+  final ValueChanged<TrashViewMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final borderColor = isDark
+        ? const Color(0xFF3F6580)
+        : const Color(0xFFB9DDFC);
+    final selectedColor = isDark
+        ? const Color(0xFF24445C)
+        : const Color(0xFFDDEEFF);
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _TrashViewButton(
+            key: const Key('trash_cards_view_button'),
+            icon: Icons.grid_view_rounded,
+            tooltip: 'Xem dạng thẻ',
+            selected: viewMode == TrashViewMode.cards,
+            selectedColor: selectedColor,
+            onPressed: () => onChanged(TrashViewMode.cards),
+          ),
+          Container(width: 1, color: borderColor),
+          _TrashViewButton(
+            key: const Key('trash_list_view_button'),
+            icon: Icons.view_list_rounded,
+            tooltip: 'Xem dạng danh sách',
+            selected: viewMode == TrashViewMode.list,
+            selectedColor: selectedColor,
+            onPressed: () => onChanged(TrashViewMode.list),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TrashViewButton extends StatelessWidget {
+  const _TrashViewButton({
+    required this.icon,
+    required this.tooltip,
+    required this.selected,
+    required this.selectedColor,
+    required this.onPressed,
+    super.key,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final bool selected;
+  final Color selectedColor;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 50,
+      height: 44,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        style: IconButton.styleFrom(
+          foregroundColor: _deepBlue,
+          backgroundColor: selected ? selectedColor : Colors.transparent,
+          shape: const RoundedRectangleBorder(),
+        ),
+        icon: Icon(icon, size: 21),
       ),
     );
   }
@@ -96,27 +206,49 @@ class _EmptyTrashState extends StatelessWidget {
   }
 }
 
-class _DeletedTaskGrid extends StatelessWidget {
-  const _DeletedTaskGrid({
+class _DeletedTaskCollection extends StatelessWidget {
+  const _DeletedTaskCollection({
     required this.tasks,
+    required this.viewMode,
     required this.onRestore,
     required this.onDeleteForever,
   });
 
   final List<TaskItem> tasks;
+  final TrashViewMode viewMode;
   final ValueChanged<String> onRestore;
   final ValueChanged<String> onDeleteForever;
 
   @override
   Widget build(BuildContext context) {
+    if (viewMode == TrashViewMode.list) {
+      return ListView.separated(
+        key: const Key('trash_task_list'),
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        itemCount: tasks.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
+        itemBuilder: (context, index) {
+          final task = tasks[index];
+          return SizedBox(
+            height: 190,
+            child: _DeletedTaskCard(
+              task: task,
+              onRestore: () => onRestore(task.id),
+              onDeleteForever: () => onDeleteForever(task.id),
+            ),
+          );
+        },
+      );
+    }
+
     return GridView.builder(
       key: const Key('trash_task_grid'),
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
-        mainAxisExtent: 172,
+        mainAxisExtent: 210,
       ),
       itemCount: tasks.length,
       itemBuilder: (context, index) {
@@ -142,13 +274,42 @@ class _DeletedTaskCard extends StatelessWidget {
   final VoidCallback onRestore;
   final VoidCallback onDeleteForever;
 
+  IconData get _contentIcon => switch (task.contentType) {
+    TaskContentType.drawing => Icons.draw_rounded,
+    TaskContentType.image => Icons.image_rounded,
+    TaskContentType.text => Icons.notes_rounded,
+  };
+
+  Widget _contentPreview() {
+    return switch (task.contentType) {
+      TaskContentType.drawing => DrawingPreview(
+        key: Key('trash_drawing_preview_${task.id}'),
+        drawingJson: task.drawingJson,
+      ),
+      TaskContentType.image => ImagePreview(
+        key: Key('trash_image_preview_${task.id}'),
+        imageDataJson: task.imageDataJson,
+      ),
+      TaskContentType.text => Align(
+        alignment: Alignment.topLeft,
+        child: RichTextPreview(
+          key: Key('trash_text_preview_${task.id}'),
+          richTextJson: task.richTextJson,
+          plainText: task.description,
+          height: 82,
+        ),
+      ),
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final titleColor = isDark ? const Color(0xFFE6F3FF) : _ink;
+    final hasTitle = task.title.trim().isNotEmpty;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 10, 8),
+      padding: const EdgeInsets.fromLTRB(14, 12, 8, 7),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF172A3A) : Colors.white,
         borderRadius: BorderRadius.circular(17),
@@ -159,42 +320,47 @@ class _DeletedTaskCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            task.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: titleColor,
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
+          if (hasTitle)
+            Text(
+              task.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: titleColor,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-          ),
-          if (task.description?.isNotEmpty ?? false) ...[
-            const SizedBox(height: 5),
-            RichTextPreview(
-              richTextJson: task.richTextJson,
-              plainText: task.description,
-              height: 55,
-            ),
-          ],
-          const Spacer(),
+          if (hasTitle) const SizedBox(height: 6),
+          Expanded(child: _contentPreview()),
+          const SizedBox(height: 5),
           Row(
-            mainAxisAlignment: MainAxisAlignment.end,
             children: [
+              Icon(_contentIcon, size: 17, color: _deepBlue),
+              const Spacer(),
               IconButton(
                 key: const Key('restore_task_button'),
                 tooltip: 'Khôi phục',
                 onPressed: onRestore,
-                icon: const Icon(Icons.restore_rounded, color: _deepBlue),
+                color: _deepBlue,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 38,
+                  height: 34,
+                ),
+                icon: const Icon(Icons.restore_rounded, size: 22),
               ),
               IconButton(
                 key: const Key('delete_forever_button'),
                 tooltip: 'Xóa vĩnh viễn',
                 onPressed: () => _confirmDeleteForever(context),
-                icon: const Icon(
-                  Icons.delete_forever_rounded,
-                  color: Color(0xFFD14343),
+                color: const Color(0xFFD14343),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 38,
+                  height: 34,
                 ),
+                icon: const Icon(Icons.delete_forever_rounded, size: 22),
               ),
             ],
           ),
@@ -204,13 +370,14 @@ class _DeletedTaskCard extends StatelessWidget {
   }
 
   Future<void> _confirmDeleteForever(BuildContext context) async {
+    final taskName = task.title.trim().isEmpty
+        ? 'Công việc này'
+        : '“${task.title}”';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Xóa vĩnh viễn?'),
-        content: Text(
-          '“${task.title}” sẽ bị xóa hoàn toàn và không thể khôi phục.',
-        ),
+        content: Text('$taskName sẽ bị xóa hoàn toàn và không thể khôi phục.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
